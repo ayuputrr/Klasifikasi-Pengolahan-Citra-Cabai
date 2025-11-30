@@ -1,677 +1,636 @@
 import streamlit as st
+import zipfile
+import shutil
+import os
 import cv2
 import numpy as np
 import pandas as pd
-import pickle
-import os
-from PIL import Image
-import matplotlib.pyplot as plt
-import seaborn as sns
+from skimage.feature import graycomatrix, graycoprops
 from sklearn.preprocessing import StandardScaler
-import io
-import warnings
-warnings.filterwarnings('ignore')
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+import pickle
+from PIL import Image
 
-# KONFIGURASI
-MODEL_PATH = r"C:\Users\Asus\downloads\bismillah\10_model_SVM\model_fixed.pkl"
+# ================================================================
+# KONFIGURASI PATH MODEL
+# ================================================================
+MODEL_DIR = r"C:\Users\ASUS\Downloads\fix"
+os.makedirs(MODEL_DIR, exist_ok=True)
 
-# Page config
-st.set_page_config(
-    page_title="Sistem Prediksi Kematangan Cabai",
-    page_icon="🌶️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+MODEL_PATH = os.path.join(MODEL_DIR, "model_svm.pkl")
+SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
 
-# Custom CSS
-st.markdown("""
-    <style>
-    .main {
-        background-color: #f5f7fa;
-    }
-    .stButton>button {
-        width: 100%;
-        background-color: #27ae60;
-        color: white;
-        font-weight: bold;
-        border-radius: 10px;
-        padding: 10px;
-        border: none;
-    }
-    .stButton>button:hover {
-        background-color: #229954;
-    }
-    .metric-card {
-        background-color: white;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .prediction-box {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 30px;
-        border-radius: 15px;
-        text-align: center;
-        margin: 20px 0;
-    }
-    .confidence-bar {
-        background-color: #ecf0f1;
-        border-radius: 10px;
-        padding: 10px;
-        margin: 10px 0;
-    }
-    h1 {
-        color: #2c3e50;
-    }
-    h2 {
-        color: #34495e;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# ================================================================
+# FUNGSI PREPROCESSING (SAMA SEPERTI TRAINING - DENGAN PERBAIKAN)
+# ================================================================
+def segment_hsv(image):
+    """Segmentasi multi-warna cabai: hijau, hijau kekuningan, merah, merah kekuningan"""
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    
+    # Hijau
+    lower_green = np.array([35, 40, 40])
+    upper_green = np.array([85, 255, 255])
+    mask_green = cv2.inRange(hsv, lower_green, upper_green)
+    
+    # Hijau kekuningan
+    lower_yellow_green = np.array([25, 40, 40])
+    upper_yellow_green = np.array([35, 255, 255])
+    mask_yellow_green = cv2.inRange(hsv, lower_yellow_green, upper_yellow_green)
+    
+    # Merah
+    lower_red1 = np.array([0, 70, 50])
+    upper_red1 = np.array([10, 255, 255])
+    lower_red2 = np.array([170, 70, 50])
+    upper_red2 = np.array([180, 255, 255])
+    mask_red = cv2.inRange(hsv, lower_red1, upper_red1) + cv2.inRange(hsv, lower_red2, upper_red2)
+    
+    # Merah kekuningan
+    lower_orange = np.array([10, 50, 50])
+    upper_orange = np.array([25, 255, 255])
+    mask_orange = cv2.inRange(hsv, lower_orange, upper_orange)
+    
+    return mask_green + mask_yellow_green + mask_red + mask_orange
 
-class BuahPredictor:
-    def __init__(self, model_path):
-        """Inisialisasi predictor"""
-        with open(model_path, 'rb') as f:
-            model_data = pickle.load(f)
-        
-        self.model = model_data['model']
-        self.scaler = model_data['scaler']
-        self.encoder = model_data['encoder']
-        self.accuracy = model_data['accuracy']
-    
-    def remove_background(self, image):
-        """Segmentasi otomatis untuk remove background"""
-        # Cek brightness
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        avg_brightness = np.mean(gray)
-        
-        if avg_brightness > 200:
-            return image, True, "Background sudah bersih"
-        
-        # Otsu thresholding
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        _, mask = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-        
-        # Morfologi
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-        
-        # Cari kontur terbesar
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        if len(contours) > 0:
-            largest_contour = max(contours, key=cv2.contourArea)
-            mask_clean = np.zeros_like(mask)
-            cv2.drawContours(mask_clean, [largest_contour], -1, 255, -1)
-            
-            result = np.ones_like(image) * 255
-            result[mask_clean == 255] = image[mask_clean == 255]
-            
-            return result, True, "Segmentasi berhasil"
-        else:
-            return image, False, "Gagal deteksi objek"
-    
-    def extract_hsv_features(self, image, limited_mode=False):
-        """Ekstraksi fitur HSV
-        
-        Args:
-            image: Input image
-            limited_mode: Jika True, hanya ekstrak mean dan std (10 fitur total)
-        """
-        hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
-        
-        features = {}
-        
-        for i, channel_name in enumerate(['H', 'S', 'V']):
-            channel = hsv[:, :, i]
-            
-            if np.sum(mask) > 0:
-                channel_values = channel[mask > 0]
-            else:
-                channel_values = channel.flatten()
-            
-            # Ekstrak mean untuk semua channel
-            features[f'mean_{channel_name}'] = np.mean(channel_values)
-            features[f'std_{channel_name}'] = np.std(channel_values)
-            
-            if not limited_mode:
-                # Ekstrak fitur tambahan jika tidak limited mode
-                features[f'median_{channel_name}'] = np.median(channel_values)
-                features[f'min_{channel_name}'] = np.min(channel_values)
-                features[f'max_{channel_name}'] = np.max(channel_values)
-        
-        # Tambahkan 4 fitur lagi untuk mencapai 10 fitur jika limited_mode
-        if limited_mode:
-            # Hitung fitur tambahan dari RGB
-            b, g, r = cv2.split(image)
-            if np.sum(mask) > 0:
-                r_values = r[mask > 0]
-                g_values = g[mask > 0]
-                b_values = b[mask > 0]
-            else:
-                r_values = r.flatten()
-                g_values = g.flatten()
-                b_values = b.flatten()
-            
-            features['mean_R'] = np.mean(r_values)
-            features['mean_G'] = np.mean(g_values)
-            features['mean_B'] = np.mean(b_values)
-            features['brightness'] = np.mean(gray[mask > 0]) if np.sum(mask) > 0 else np.mean(gray)
-        
-        return features
-    
-    def extract_glcm_features(self, image):
-        """Ekstraksi fitur GLCM menggunakan OpenCV"""
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
-        
-        gray_masked = gray.copy()
-        gray_masked[mask == 0] = 0
-        
-        def compute_glcm(image, distance=1, angle=0):
-            h, w = image.shape
-            glcm = np.zeros((256, 256), dtype=np.float32)
-            
-            if angle == 0:
-                dx, dy = distance, 0
-            elif angle == 45:
-                dx, dy = distance, -distance
-            elif angle == 90:
-                dx, dy = 0, -distance
-            else:
-                dx, dy = -distance, -distance
-            
-            for i in range(h):
-                for j in range(w):
-                    if 0 <= i+dy < h and 0 <= j+dx < w:
-                        pixel1 = image[i, j]
-                        pixel2 = image[i+dy, j+dx]
-                        glcm[pixel1, pixel2] += 1
-            
-            if glcm.sum() > 0:
-                glcm = glcm / glcm.sum()
-            
-            return glcm
-        
-        def glcm_properties(glcm):
-            i, j = np.meshgrid(range(256), range(256), indexing='ij')
-            
-            contrast = np.sum(glcm * (i - j) ** 2)
-            dissimilarity = np.sum(glcm * np.abs(i - j))
-            homogeneity = np.sum(glcm / (1 + (i - j) ** 2))
-            energy = np.sum(glcm ** 2)
-            asm = energy
-            
-            mean_i = np.sum(i * glcm)
-            mean_j = np.sum(j * glcm)
-            std_i = np.sqrt(np.sum(glcm * (i - mean_i) ** 2))
-            std_j = np.sqrt(np.sum(glcm * (j - mean_j) ** 2))
-            
-            if std_i > 0 and std_j > 0:
-                correlation = np.sum(glcm * (i - mean_i) * (j - mean_j)) / (std_i * std_j)
-            else:
-                correlation = 0
-            
-            return {
-                'contrast': contrast,
-                'dissimilarity': dissimilarity,
-                'homogeneity': homogeneity,
-                'energy': energy,
-                'correlation': correlation,
-                'ASM': asm
-            }
-        
-        angles = [0, 45, 90, 135]
-        all_props = {prop: [] for prop in ['contrast', 'dissimilarity', 'homogeneity', 
-                                            'energy', 'correlation', 'ASM']}
-        
-        for angle in angles:
-            glcm = compute_glcm(gray_masked, distance=1, angle=angle)
-            props = glcm_properties(glcm)
-            
-            for prop_name, prop_value in props.items():
-                all_props[prop_name].append(prop_value)
-        
-        features = {}
-        for prop_name, prop_values in all_props.items():
-            features[f'glcm_{prop_name}_mean'] = np.mean(prop_values)
-            features[f'glcm_{prop_name}_std'] = np.std(prop_values)
-        
-        return features
-    
-    def predict(self, image):
-        """Prediksi image"""
-        # Segmentasi
-        segmented, success, message = self.remove_background(image)
-        
-        # Cek jumlah fitur yang diharapkan
-        n_features_expected = self.scaler.n_features_in_
-        
-        # Tentukan mode ekstraksi fitur berdasarkan jumlah yang diharapkan
-        if n_features_expected == 10:
-            # Mode 10 fitur: HSV limited mode (6) + RGB (3) + brightness (1)
-            hsv_features = self.extract_hsv_features(segmented, limited_mode=True)
-            all_features = hsv_features
-            st.info("ℹ️ Menggunakan mode 10 fitur (HSV + RGB)")
-        elif n_features_expected == 15:
-            # Mode 15 fitur: HSV lengkap saja
-            hsv_features = self.extract_hsv_features(segmented, limited_mode=False)
-            all_features = hsv_features
-            st.info("ℹ️ Menggunakan mode 15 fitur (HSV lengkap)")
-        elif n_features_expected == 27:
-            # Mode 27 fitur: HSV (15) + GLCM (12)
-            hsv_features = self.extract_hsv_features(segmented, limited_mode=False)
-            glcm_features = self.extract_glcm_features(segmented)
-            all_features = {**hsv_features, **glcm_features}
-            st.info("ℹ️ Menggunakan mode 27 fitur (HSV + GLCM)")
-        else:
-            # Mode custom: sesuaikan dengan feature names
-            st.warning(f"⚠️ Mode custom: {n_features_expected} fitur")
-            hsv_features = self.extract_hsv_features(segmented, limited_mode=False)
-            glcm_features = self.extract_glcm_features(segmented)
-            all_features = {**hsv_features, **glcm_features}
-        
-        # Debug info
-        st.write(f"🔍 Fitur diekstrak: {len(all_features)}, Diharapkan: {n_features_expected}")
-        
-        # Jika jumlah fitur tidak sesuai, sesuaikan
-        if len(all_features) != n_features_expected:
-            # Ambil feature names yang diharapkan oleh model
-            if hasattr(self.scaler, 'feature_names_in_'):
-                expected_features = self.scaler.feature_names_in_
-            else:
-                # Jika tidak ada feature names, ambil n fitur pertama
-                expected_features = list(all_features.keys())[:n_features_expected]
-            
-            with st.expander("⚠️ Penyesuaian Fitur"):
-                st.write("**Fitur yang diharapkan:**", list(expected_features))
-                st.write("**Fitur yang diekstrak:**", list(all_features.keys()))
-            
-            # Buat feature vector sesuai urutan yang diharapkan
-            feature_values = []
-            for feat_name in expected_features:
-                if feat_name in all_features:
-                    feature_values.append(all_features[feat_name])
-                else:
-                    feature_values.append(0.0)  # Default value jika fitur tidak ada
-            
-            feature_vector = np.array(feature_values).reshape(1, -1)
-        else:
-            feature_vector = np.array(list(all_features.values())).reshape(1, -1)
-        
-        # Prediksi
-        feature_scaled = self.scaler.transform(feature_vector)
-        
-        prediction = self.model.predict(feature_scaled)
-        decision_scores = self.model.decision_function(feature_scaled)
-        
-        # Confidence
-        confidence_normalized = np.exp(decision_scores[0]) / np.sum(np.exp(decision_scores[0])) * 100
-        
-        predicted_label = self.encoder.inverse_transform(prediction)[0]
-        
-        return {
-            'predicted_class': predicted_label,
-            'confidence_scores': {label: score for label, score in 
-                                 zip(self.encoder.classes_, confidence_normalized)},
-            'segmented_image': segmented,
-            'segmentation_message': message,
-            'features': all_features
-        }
+def apply_morphology(mask):
+    """Opening + Closing untuk hilangkan noise"""
+    kernel_open = np.ones((5, 5), np.uint8)
+    kernel_close = np.ones((9, 9), np.uint8)
+    opening = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel_open, iterations=2)
+    closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel_close, iterations=2)
+    return closing
 
-@st.cache_resource
-def load_model():
-    """Load model dengan caching"""
-    try:
-        predictor = BuahPredictor(MODEL_PATH)
-        return predictor, None
-    except Exception as e:
-        return None, str(e)
+def apply_mask_to_image(image, mask):
+    """Isolasi objek dari background"""
+    mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+    return cv2.bitwise_and(image, mask_3ch)
 
-def plot_confidence_chart(confidence_scores):
-    """Plot confidence scores"""
-    fig, ax = plt.subplots(figsize=(10, 4))
+def crop_object_with_padding(image, mask):
+    """Crop objek dengan padding proporsional (30%)"""
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    labels = list(confidence_scores.keys())
-    scores = list(confidence_scores.values())
-    colors = ['#e74c3c', '#f39c12', '#27ae60']
+    if len(contours) == 0:
+        return image
     
-    bars = ax.barh(labels, scores, color=colors, alpha=0.7, 
-                   edgecolor='black', linewidth=2)
+    c = max(contours, key=cv2.contourArea)
+    x, y, w, h = cv2.boundingRect(c)
     
-    # Highlight highest
-    max_idx = scores.index(max(scores))
-    bars[max_idx].set_alpha(1.0)
-    bars[max_idx].set_linewidth(3)
+    # Padding 30% (proporsional)
+    padding_w = int(w * 0.3)
+    padding_h = int(h * 0.3)
     
-    # Labels
-    for i, (bar, score) in enumerate(zip(bars, scores)):
-        width = bar.get_width()
-        label_text = f'{score:.1f}%'
-        if i == max_idx:
-            label_text = f'★ {score:.1f}%'
-        ax.text(width + 2, bar.get_y() + bar.get_height()/2, 
-               label_text, ha='left', va='center',
-               fontweight='bold' if i == max_idx else 'normal',
-               fontsize=12)
+    x = max(0, x - padding_w)
+    y = max(0, y - padding_h)
+    w = min(image.shape[1] - x, w + 2 * padding_w)
+    h = min(image.shape[0] - y, h + 2 * padding_h)
     
-    ax.set_xlabel('Confidence (%)', fontsize=11, fontweight='bold')
-    ax.set_title('Confidence Score per Kelas', fontsize=12, fontweight='bold', pad=10)
-    ax.set_xlim([0, 110])
-    ax.grid(axis='x', alpha=0.3, linestyle='--')
-    
-    plt.tight_layout()
-    return fig
+    return image[y:y+h, x:x+w]
 
-def plot_feature_importance(features, top_n=10):
-    """Plot top N features"""
-    # Sort features by value
-    sorted_features = dict(sorted(features.items(), key=lambda x: abs(x[1]), reverse=True)[:top_n])
+def resize_with_padding(image, target_size=664):
+    """
+    Resize dengan aspect ratio + padding hitam.
+    KUNCI UTAMA: Objek tidak akan ter-zoom!
+    """
+    h, w = image.shape[:2]
     
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # Hitung scale factor
+    scale = min(target_size / w, target_size / h)
     
-    names = list(sorted_features.keys())
-    values = list(sorted_features.values())
+    # Resize dengan aspect ratio
+    new_w = int(w * scale)
+    new_h = int(h * scale)
+    resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
     
-    colors_list = ['#3498db' if v > 0 else '#e74c3c' for v in values]
+    # Canvas hitam 664x664
+    canvas = np.zeros((target_size, target_size, 3), dtype=np.uint8)
     
-    bars = ax.barh(names, values, color=colors_list, alpha=0.7, edgecolor='black')
+    # Letakkan gambar di tengah
+    y_offset = (target_size - new_h) // 2
+    x_offset = (target_size - new_w) // 2
+    canvas[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
     
-    ax.set_xlabel('Nilai Fitur', fontsize=11, fontweight='bold')
-    ax.set_title(f'Top {top_n} Fitur Terekstrak', fontsize=12, fontweight='bold', pad=10)
-    ax.grid(axis='x', alpha=0.3, linestyle='--')
-    
-    plt.tight_layout()
-    return fig
+    return canvas
 
-def main():
-    # Header
-    st.markdown("""
-        <div style='text-align: center; padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                    border-radius: 15px; margin-bottom: 30px;'>
-            <h1 style='color: white; margin: 0;'>🌶️ Sistem Prediksi Kematangan Cabai</h1>
-            <p style='color: white; margin: 10px 0 0 0; font-size: 18px;'>
-                Klasifikasi Kematangan Cabai menggunakan Support Vector Machine (SVM)
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+def preprocess_image(image):
+    """
+    Pipeline preprocessing lengkap (TANPA ZOOM):
+    resize → segment → morphology → mask → crop dengan padding → resize dengan aspect ratio
+    """
+    # 1. Resize awal
+    resized = cv2.resize(image, (664, 664))
     
-    # Load model
-    predictor, error = load_model()
+    # 2. Segmentasi HSV
+    mask = segment_hsv(resized)
     
-    if error:
-        st.error(f"❌ Gagal memuat model: {error}")
-        st.info("📝 Pastikan path model sudah benar dan model sudah ditraining")
-        return
+    # 3. Morfologi
+    morph = apply_morphology(mask)
     
-    # Sidebar
-    with st.sidebar:
-        st.image("https://img.icons8.com/color/96/000000/chili-pepper.png", width=100)
-        st.title("📊 Informasi Model")
-        
-        st.markdown(f"""
-        <div class='metric-card'>
-            <h3>Model Performance</h3>
-            <p style='font-size: 32px; font-weight: bold; color: #27ae60; margin: 10px 0;'>
-                {predictor.accuracy*100:.2f}%
-            </p>
-            <p style='color: #7f8c8d;'>Akurasi Model</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("---")
-        
-        st.markdown("### 🎯 Kelas Prediksi")
-        classes = predictor.encoder.classes_
-        class_colors = {'belum matang': '🔴', 'matang': '🟠', 'kematangan': '🟢'}
-        for cls in classes:
-            emoji = class_colors.get(cls, '⚪')
-            st.markdown(f"{emoji} **{cls.title()}**")
-        
-        st.markdown("---")
-        
-        st.markdown("### 📝 Cara Penggunaan")
-        st.markdown("""
-        1. Upload gambar buah
-        2. Sistem akan otomatis:
-           - Segmentasi background
-           - Ekstraksi fitur
-           - Prediksi kematangan
-        3. Lihat hasil dan confidence score
-        """)
-        
-        st.markdown("---")
-        
-        st.markdown("### ⚙️ Fitur Sistem")
-        st.markdown("""
-        - ✅ Auto background removal
-        - ✅ HSV color features
-        - ✅ GLCM texture features
-        - ✅ Real-time prediction
-        - ✅ Confidence visualization
-        """)
+    # 4. Apply mask
+    masked = apply_mask_to_image(resized, morph)
     
-    # Main content
-    tab1, tab2, tab3 = st.tabs(["🔮 Prediksi Single", "📁 Prediksi Batch", "📖 Tentang"])
+    # 5. Crop objek dengan padding proporsional (30%)
+    cropped = crop_object_with_padding(masked, morph)
     
-    with tab1:
-        st.header("Upload Gambar Cabai")
+    # 6. Resize final dengan aspect ratio (NO ZOOM!)
+    final = resize_with_padding(cropped, target_size=664)
+    
+    return final, mask, masked, cropped
+
+# ================================================================
+# FUNGSI EKSTRAKSI FITUR
+# ================================================================
+def extract_hsv_features(image):
+    """Ekstrak fitur warna HSV"""
+    hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    H, S, V = cv2.split(hsv)
+    
+    return [
+        np.mean(H), np.std(H),
+        np.mean(S), np.std(S),
+        np.mean(V), np.std(V)
+    ]
+
+def extract_glcm_features(image):
+    """Ekstrak fitur tekstur GLCM"""
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.resize(gray, (256, 256))
+    
+    glcm = graycomatrix(
+        gray,
+        distances=[1],
+        angles=[0, np.pi/4, np.pi/2, 3*np.pi/4],
+        symmetric=True,
+        normed=True
+    )
+    
+    feats = []
+    props = ["contrast", "dissimilarity", "homogeneity", "energy", "correlation", "ASM"]
+    
+    for p in props:
+        feats.append(graycoprops(glcm, p).mean())
+    
+    return feats
+
+def extract_features(image):
+    """Ekstrak semua fitur (HSV + GLCM)"""
+    hsv_feat = extract_hsv_features(image)
+    glcm_feat = extract_glcm_features(image)
+    return hsv_feat + glcm_feat
+
+# ================================================================
+# STREAMLIT UI
+# ================================================================
+st.set_page_config(page_title="Klasifikasi Kematangan Cabai", page_icon="🌶️", layout="wide")
+
+st.title("🌶️ Aplikasi Klasifikasi Kematangan Cabai")
+st.markdown("**Model SVM dengan Preprocessing Tanpa Zoom: Segmentasi HSV → Morfologi → Isolasi Objek → Resize dengan Aspect Ratio**")
+
+menu = st.sidebar.selectbox("📋 Menu", ["Ekstraksi + Training", "Prediksi Citra", "Prediksi Batch (Folder)"])
+
+# Mapping label
+label_map_str_to_int = {
+    "belum matang": 0,
+    "matang": 1,
+    "kematangan": 2
+}
+
+label_map_int_to_str = {
+    0: "Belum Matang",
+    1: "Matang",
+    2: "Kematangan"
+}
+
+label_colors = {
+    0: "🟢",
+    1: "🔴",
+    2: "🟠",
+    "belum matang": "🟢",
+    "matang": "🔴",
+    "kematangan": "🟠",
+    "Belum Matang": "🟢",
+    "Matang": "🔴",
+    "Kematangan": "🟠"
+}
+
+# ================================================================
+# MENU TRAINING MODEL
+# ================================================================
+if menu == "Ekstraksi + Training":
+    st.header("📦 Upload ZIP Dataset")
+    st.info("📁 Struktur ZIP: folder per kelas (belum matang, matang, kematangan)")
+
+    zip_file = st.file_uploader("Upload file ZIP", type=["zip"])
+
+    if zip_file is not None:
+        with st.spinner("Mengekstrak ZIP..."):
+            # Hapus dataset lama
+            if os.path.exists("dataset"):
+                shutil.rmtree("dataset")
+
+            # Ekstrak ZIP
+            with zipfile.ZipFile(zip_file, "r") as z:
+                z.extractall("dataset")
+
+        st.success("✅ ZIP berhasil diekstrak!")
+
+        # Mulai ekstraksi fitur
+        with st.spinner("🔄 Melakukan preprocessing & ekstraksi fitur (tanpa zoom)..."):
+            data = []
+            labels = []
+
+            for folder in os.listdir("dataset"):
+                folder_path = os.path.join("dataset", folder)
+
+                if os.path.isdir(folder_path):
+                    st.write(f"📂 Memproses folder: **{folder}**")
+                    
+                    for img_name in os.listdir(folder_path):
+                        img_path = os.path.join(folder_path, img_name)
+
+                        try:
+                            img = cv2.imread(img_path)
+                            if img is None:
+                                continue
+                            
+                            # Preprocessing lengkap (TANPA ZOOM!)
+                            processed_img, _, _, _ = preprocess_image(img)
+                            
+                            # Ekstraksi fitur
+                            feat = extract_features(processed_img)
+                            data.append(feat)
+                            labels.append(folder)
+                        except Exception as e:
+                            st.warning(f"⚠️ Gagal memproses {img_name}: {str(e)}")
+
+        df = pd.DataFrame(data)
+        df["label"] = labels
+
+        # Cek jumlah kelas
+        unique_classes = df["label"].unique()
         
-        col1, col2 = st.columns([1, 1])
+        if len(unique_classes) < 2:
+            st.error(f"❌ **Error: Dataset hanya memiliki {len(unique_classes)} kelas!**")
+            st.warning("⚠️ **Solusi:**")
+            st.write("1. Pastikan ZIP berisi minimal 2 folder kelas berbeda")
+            st.write("2. Contoh struktur ZIP yang benar:")
+            st.code("""
+dataset.zip/
+├── belum matang/
+│   ├── img1.jpg
+│   └── img2.jpg
+├── matang/
+│   ├── img3.jpg
+│   └── img4.jpg
+└── kematangan/
+    ├── img5.jpg
+    └── img6.jpg
+            """)
+            st.info(f"📊 Kelas yang terdeteksi: {list(unique_classes)}")
+            st.stop()
+
+        # Konversi label string ke integer
+        df["label_original"] = df["label"]
+        df["label"] = df["label"].str.lower().map(label_map_str_to_int)
+        
+        # Handling label yang tidak dikenali
+        if df["label"].isnull().any():
+            st.warning("⚠️ Beberapa label tidak dikenali, menggunakan mapping otomatis")
+            unique_labels = df["label_original"].unique()
+            auto_map = {label: idx for idx, label in enumerate(unique_labels)}
+            df["label"] = df["label_original"].map(auto_map)
+
+        st.success(f"✅ Berhasil mengekstrak fitur dari **{len(df)}** gambar")
+        st.info(f"📊 Jumlah kelas terdeteksi: **{len(unique_classes)}** → {list(unique_classes)}")
+        st.write("**Preview Dataset Fitur:**")
+        st.dataframe(df.head(10))
+
+        # ============================
+        # TRAINING MODEL
+        # ============================
+        st.header("🤖 Training Model SVM")
+        
+        with st.spinner("⏳ Training model..."):
+            # Drop kolom yang tidak perlu
+            X = df.drop(["label", "label_original"], axis=1, errors='ignore').values
+            y = df["label"].values
+
+            scaler = StandardScaler()
+            X_scaled = scaler.fit_transform(X)
+
+            # Split
+            X_train, X_test, y_train, y_test = train_test_split(
+                X_scaled, y, test_size=0.2, random_state=42, stratify=y
+            )
+
+            # Model SVM
+            model = SVC(kernel="rbf", C=10, gamma="scale", probability=True)
+            model.fit(X_train, y_train)
+
+            # Prediksi
+            y_pred = model.predict(X_test)
+
+        # Evaluasi
+        st.subheader("📊 Evaluasi Model")
+        
+        col1, col2 = st.columns(2)
         
         with col1:
-            uploaded_file = st.file_uploader(
-                "Pilih gambar cabai (JPG, PNG, JPEG)",
-                type=['jpg', 'jpeg', 'png'],
-                help="Upload gambar cabai untuk diprediksi kematangannya",
-                key="single_uploader"
-            )
-            
-            if uploaded_file is not None:
-                try:
-                    # Baca image dengan cara yang lebih robust
-                    # Reset pointer file ke awal
-                    uploaded_file.seek(0)
-                    
-                    # Baca sebagai PIL Image terlebih dahulu
-                    pil_image = Image.open(uploaded_file)
-                    
-                    # Convert PIL ke numpy array
-                    image_rgb = np.array(pil_image)
-                    
-                    # Convert RGB ke BGR untuk OpenCV
-                    if len(image_rgb.shape) == 2:  # Grayscale
-                        image = cv2.cvtColor(image_rgb, cv2.COLOR_GRAY2BGR)
-                    elif image_rgb.shape[2] == 4:  # RGBA
-                        image = cv2.cvtColor(image_rgb, cv2.COLOR_RGBA2BGR)
-                    else:  # RGB
-                        image = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
-                    
-                    # Display original
-                    st.subheader("📷 Gambar Asli")
-                    st.image(image_rgb, 
-                            caption=f"Ukuran: {image.shape[1]}x{image.shape[0]}", 
-                            use_container_width=True)
-                    
-                    # Predict button
-                    if st.button("🔮 Prediksi Sekarang!", type="primary", key="predict_btn"):
-                        with st.spinner("⏳ Memproses gambar..."):
-                            try:
-                                result = predictor.predict(image)
-                                
-                                # Save to session state
-                                st.session_state['result'] = result
-                                st.session_state['original_image'] = image
-                                st.success("✅ Prediksi berhasil!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Error saat prediksi: {str(e)}")
-                                st.exception(e)
-                
-                except Exception as e:
-                    st.error(f"❌ Error membaca gambar: {str(e)}")
-                    st.info("💡 Tips: Pastikan file adalah gambar yang valid (JPG/PNG)")
+            st.text("Confusion Matrix:")
+            st.text(confusion_matrix(y_test, y_pred))
         
         with col2:
-            if 'result' in st.session_state:
-                result = st.session_state['result']
-                original_image = st.session_state['original_image']
-                
-                # Display segmented image
-                st.subheader("🔧 Setelah Segmentasi")
-                segmented_rgb = cv2.cvtColor(result['segmented_image'], cv2.COLOR_BGR2RGB)
-                st.image(segmented_rgb,
-                        caption=result['segmentation_message'],
-                        use_container_width=True)
-                
-                # Prediction result
-                predicted = result['predicted_class']
-                max_confidence = max(result['confidence_scores'].values())
-                
-                st.markdown(f"""
-                <div class='prediction-box'>
-                    <h2 style='margin: 0; color: white;'>Hasil Prediksi</h2>
-                    <h1 style='margin: 20px 0; font-size: 48px;'>{predicted.upper()}</h1>
-                    <p style='margin: 0; font-size: 16px; opacity: 0.9;'>
-                        Confidence: {max_confidence:.1f}%
-                    </p>
-                </div>
-                """, unsafe_allow_html=True)
+            acc = accuracy_score(y_test, y_pred)
+            st.metric("Akurasi", f"{acc:.2%}")
+
+        st.text("Classification Report:")
+        st.text(classification_report(y_test, y_pred))
+
+        # Simpan Model & Scaler
+        pickle.dump(model, open(MODEL_PATH, "wb"))
+        pickle.dump(scaler, open(SCALER_PATH, "wb"))
+
+        st.success("✅ Model & Scaler berhasil disimpan!")
+        st.info(f"📁 Lokasi: `{MODEL_DIR}/`")
         
-        # Confidence scores
-        if 'result' in st.session_state:
-            st.markdown("---")
-            st.subheader("📊 Analisis Detail")
+        st.success("🎯 **Preprocessing yang diterapkan:**")
+        st.write("✅ Crop dengan padding 30% (objek tidak terlalu besar)")
+        st.write("✅ Resize dengan aspect ratio (tidak ada distorsi)")
+        st.write("✅ Padding hitam pada canvas (ukuran objek konsisten)")
+        st.write("✅ Objek TIDAK akan ter-zoom berlebihan!")
+
+
+# ================================================================
+# MENU PREDIKSI CITRA
+# ================================================================
+elif menu == "Prediksi Citra":
+    st.header("📷 Upload Gambar Cabai untuk Prediksi")
+    st.info("💡 Model akan otomatis mengisolasi objek cabai dari background TANPA zoom berlebihan")
+
+    img_file = st.file_uploader("Upload gambar", type=["jpg", "jpeg", "png"])
+
+    if img_file is not None:
+        # Load gambar
+        img_array = np.frombuffer(img_file.read(), np.uint8)
+        img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+        # Load Model
+        if not os.path.exists(MODEL_PATH) or not os.path.exists(SCALER_PATH):
+            st.error("❗ Model belum ditemukan. Silakan training model terlebih dahulu.")
+            st.stop()
+
+        model = pickle.load(open(MODEL_PATH, "rb"))
+        scaler = pickle.load(open(SCALER_PATH, "rb"))
+
+        # Preprocessing
+        with st.spinner("🔄 Melakukan preprocessing (tanpa zoom)..."):
+            processed_img, mask, masked_img, cropped_img = preprocess_image(img)
+
+        # Tampilkan hasil preprocessing
+        st.subheader("📋 Tahapan Preprocessing (Tanpa Zoom)")
+        
+        col1, col2, col3, col4, col5 = st.columns(5)
+        
+        with col1:
+            st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), caption="1. Gambar Asli", use_column_width=True)
+        
+        with col2:
+            st.image(mask, caption="2. Mask (Segmentasi)", use_column_width=True)
+        
+        with col3:
+            st.image(cv2.cvtColor(masked_img, cv2.COLOR_BGR2RGB), caption="3. Objek Terpisah", use_column_width=True)
+        
+        with col4:
+            st.image(cv2.cvtColor(cropped_img, cv2.COLOR_BGR2RGB), caption="4. Crop + Padding 30%", use_column_width=True)
+        
+        with col5:
+            st.image(cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB), caption="5. Hasil Akhir (No Zoom!)", use_column_width=True)
+
+        # Ekstraksi fitur
+        with st.spinner("🔍 Mengekstrak fitur..."):
+            feat = extract_features(processed_img)
+
+        # Scaling & Prediksi
+        feat_scaled = scaler.transform([feat])
+        pred_label = model.predict(feat_scaled)[0]
+        pred_proba = model.predict_proba(feat_scaled)[0]
+
+        # Konversi label ke format yang konsisten
+        if isinstance(pred_label, str):
+            pred_label_normalized = pred_label.lower()
+            pred_label_int = label_map_str_to_int.get(pred_label_normalized, 0)
+            pred_label_display = pred_label.title()
+            emoji = label_colors.get(pred_label_normalized, "⚪")
+        else:
+            pred_label_int = int(pred_label)
+            pred_label_display = label_map_int_to_str.get(pred_label_int, "Unknown")
+            emoji = label_colors.get(pred_label_int, "⚪")
+
+        # Hasil Prediksi
+        st.subheader("🎯 Hasil Prediksi")
+        
+        st.success(f"### {emoji} Kelas: **{pred_label_display}**")
+        
+        st.write("**Probabilitas per Kelas:**")
+        
+        # Buat dataframe probabilitas
+        prob_labels = []
+        for i, prob in enumerate(pred_proba):
+            if hasattr(model, 'classes_'):
+                class_label = model.classes_[i]
+                if isinstance(class_label, str):
+                    display_label = class_label.title()
+                else:
+                    display_label = label_map_int_to_str.get(class_label, f"Class {class_label}")
+            else:
+                display_label = label_map_int_to_str.get(i, f"Class {i}")
+            prob_labels.append(display_label)
+        
+        prob_df = pd.DataFrame({
+            'Kelas': prob_labels,
+            'Probabilitas': [f"{p*100:.2f}%" for p in pred_proba]
+        })
+        st.dataframe(prob_df)
+        
+        # Bar chart probabilitas
+        chart_data = pd.DataFrame({
+            prob_labels[i]: [pred_proba[i]] for i in range(len(pred_proba))
+        }).T
+        st.bar_chart(chart_data)
+        
+        st.success("✅ **Objek cabai diproses dengan ukuran konsisten (NO ZOOM)!**")
+
+# ================================================================
+# MENU PREDIKSI BATCH (FOLDER)
+# ================================================================
+elif menu == "Prediksi Batch (Folder)":
+    st.header("📁 Prediksi Banyak Gambar Sekaligus")
+    st.info("💡 Upload ZIP berisi gambar-gambar cabai (tanpa subfolder) untuk prediksi batch")
+    
+    # Upload ZIP
+    zip_file = st.file_uploader("Upload ZIP berisi gambar", type=["zip"], key="batch_zip")
+    
+    if zip_file is not None:
+        # Load Model
+        if not os.path.exists(MODEL_PATH) or not os.path.exists(SCALER_PATH):
+            st.error("❗ Model belum ditemukan. Silakan training model terlebih dahulu.")
+            st.stop()
+        
+        model = pickle.load(open(MODEL_PATH, "rb"))
+        scaler = pickle.load(open(SCALER_PATH, "rb"))
+        
+        # Extract ZIP
+        with st.spinner("📦 Mengekstrak ZIP..."):
+            batch_dir = "batch_prediction"
+            if os.path.exists(batch_dir):
+                shutil.rmtree(batch_dir)
             
-            col1, col2 = st.columns([1, 1])
+            with zipfile.ZipFile(zip_file, "r") as z:
+                z.extractall(batch_dir)
+        
+        st.success("✅ ZIP berhasil diekstrak!")
+        
+        # Cari semua file gambar
+        image_files = []
+        for root, dirs, files in os.walk(batch_dir):
+            for file in files:
+                if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    image_files.append(os.path.join(root, file))
+        
+        if len(image_files) == 0:
+            st.error("❌ Tidak ada gambar ditemukan dalam ZIP!")
+            st.stop()
+        
+        st.info(f"📊 Ditemukan **{len(image_files)}** gambar untuk diprediksi")
+        
+        # Progress bar
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Container untuk hasil
+        results = []
+        
+        # Proses setiap gambar
+        for idx, img_path in enumerate(image_files):
+            status_text.text(f"🔄 Memproses: {os.path.basename(img_path)} ({idx+1}/{len(image_files)})")
+            
+            try:
+                # Load gambar
+                img = cv2.imread(img_path)
+                if img is None:
+                    results.append({
+                        'Nama File': os.path.basename(img_path),
+                        'Status': '❌ Gagal dibaca',
+                        'Prediksi': '-',
+                        'Confidence': '-'
+                    })
+                    continue
+                
+                # Preprocessing (TANPA ZOOM!)
+                processed_img, _, _, _ = preprocess_image(img)
+                
+                # Ekstraksi fitur
+                feat = extract_features(processed_img)
+                
+                # Prediksi
+                feat_scaled = scaler.transform([feat])
+                pred_label = model.predict(feat_scaled)[0]
+                pred_proba = model.predict_proba(feat_scaled)[0]
+                max_proba = np.max(pred_proba)
+                
+                # Konversi label
+                if isinstance(pred_label, str):
+                    pred_label_display = pred_label.title()
+                    emoji = label_colors.get(pred_label.lower(), "⚪")
+                else:
+                    pred_label_display = label_map_int_to_str.get(int(pred_label), "Unknown")
+                    emoji = label_colors.get(int(pred_label), "⚪")
+                
+                # Simpan hasil
+                results.append({
+                    'Nama File': os.path.basename(img_path),
+                    'Status': '✅ Berhasil',
+                    'Prediksi': f"{emoji} {pred_label_display}",
+                    'Confidence': f"{max_proba*100:.2f}%"
+                })
+                
+            except Exception as e:
+                results.append({
+                    'Nama File': os.path.basename(img_path),
+                    'Status': f'❌ Error: {str(e)[:50]}',
+                    'Prediksi': '-',
+                    'Confidence': '-'
+                })
+            
+            # Update progress
+            progress_bar.progress((idx + 1) / len(image_files))
+        
+        status_text.text("✅ Prediksi selesai!")
+        
+        # Tampilkan hasil dalam tabel
+        st.subheader("📊 Hasil Prediksi Batch")
+        
+        results_df = pd.DataFrame(results)
+        st.dataframe(results_df)
+        
+        # Statistik hasil
+        st.subheader("📈 Statistik Prediksi")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            total_success = len([r for r in results if r['Status'] == '✅ Berhasil'])
+            st.metric("✅ Berhasil", f"{total_success}/{len(results)}")
+        
+        with col2:
+            total_failed = len(results) - total_success
+            st.metric("❌ Gagal", total_failed)
+        
+        with col3:
+            success_rate = (total_success / len(results)) * 100 if len(results) > 0 else 0
+            st.metric("📊 Success Rate", f"{success_rate:.1f}%")
+        
+        # Distribusi prediksi
+        if total_success > 0:
+            st.subheader("📊 Distribusi Kelas Prediksi")
+            
+            # Hitung distribusi
+            prediction_counts = {}
+            for r in results:
+                if r['Status'] == '✅ Berhasil':
+                    pred = r['Prediksi'].split(' ', 1)[1] if ' ' in r['Prediksi'] else r['Prediksi']
+                    prediction_counts[pred] = prediction_counts.get(pred, 0) + 1
+            
+            # Tampilkan dalam chart
+            dist_df = pd.DataFrame({
+                'Kelas': list(prediction_counts.keys()),
+                'Jumlah': list(prediction_counts.values())
+            })
+            
+            col1, col2 = st.columns([2, 1])
             
             with col1:
-                st.markdown("### Confidence Score")
-                fig_conf = plot_confidence_chart(result['confidence_scores'])
-                st.pyplot(fig_conf)
-                plt.close()
-                
-                # Display scores in metrics
-                st.markdown("### Skor per Kelas")
-                cols = st.columns(3)
-                for i, (label, score) in enumerate(result['confidence_scores'].items()):
-                    with cols[i]:
-                        emoji = {'belum matang': '🔴', 'matang': '🟠', 'kematangan': '🟢'}
-                        st.metric(
-                            label=f"{emoji.get(label, '⚪')} {label.title()}",
-                            value=f"{score:.1f}%"
-                        )
+                st.bar_chart(dist_df.set_index('Kelas'))
             
             with col2:
-                st.markdown("### Top 10 Fitur Terekstrak")
-                fig_feat = plot_feature_importance(result['features'], top_n=10)
-                st.pyplot(fig_feat)
-                plt.close()
-            
-            # Feature table
-            with st.expander("🔬 Lihat Semua Fitur (Advanced)"):
-                df_features = pd.DataFrame([result['features']]).T
-                df_features.columns = ['Nilai']
-                df_features.index.name = 'Nama Fitur'
-                st.dataframe(df_features, use_container_width=True)
-            
-            # Reset button
-            if st.button("🔄 Reset & Upload Gambar Baru", key="reset_btn"):
-                # Clear session state
-                if 'result' in st.session_state:
-                    del st.session_state['result']
-                if 'original_image' in st.session_state:
-                    del st.session_state['original_image']
-                st.rerun()
-    
-    with tab2:
-        st.header("Prediksi Batch (Multiple Images)")
-        st.info("🚧 Fitur ini akan segera hadir! Untuk sementara gunakan mode Single Prediction.")
+                st.dataframe(dist_df)
+                for kelas, jumlah in prediction_counts.items():
+                    pct = (jumlah / total_success) * 100
+                    st.write(f"**{kelas}**: {jumlah} ({pct:.1f}%)")
         
-        # Placeholder untuk future development
-        uploaded_files = st.file_uploader(
-            "Upload multiple gambar",
-            type=['jpg', 'jpeg', 'png'],
-            accept_multiple_files=True,
-            help="Upload beberapa gambar sekaligus untuk prediksi batch",
-            disabled=True
+        # Download hasil sebagai CSV
+        st.subheader("💾 Download Hasil")
+        
+        csv = results_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Hasil Prediksi (CSV)",
+            data=csv,
+            file_name="hasil_prediksi_batch.csv",
+            mime="text/csv"
         )
-    
-    with tab3:
-        st.header("📖 Tentang Sistem")
         
-        col1, col2 = st.columns([1, 1])
+        st.success("✅ **Semua gambar diproses dengan preprocessing TANPA ZOOM!**")
         
-        with col1:
-            st.markdown("""
-            ### 🎯 Tujuan Sistem
-            Sistem ini dirancang untuk mengklasifikasikan tingkat kematangan cabai 
-            secara otomatis menggunakan teknologi computer vision dan machine learning.
-            
-            ### 🔬 Metodologi
-            
-            **1. Segmentasi Background**
-            - Otsu Thresholding
-            - Morphological Operations
-            - Contour Detection
-            
-            **2. Ekstraksi Fitur**
-            - **HSV Color Features**: Mean, Std, Median, Min, Max untuk setiap channel (H, S, V)
-            - **GLCM Texture Features**: Contrast, Dissimilarity, Homogeneity, Energy, Correlation, ASM
-            
-            **3. Klasifikasi**
-            - Algorithm: Support Vector Machine (SVM)
-            - Kernel: RBF (Radial Basis Function)
-            - Feature Scaling: StandardScaler
-            """)
-        
-        with col2:
-            st.markdown(f"""
-            ### 📊 Performa Model
-            
-            **Akurasi Overall**: {predictor.accuracy*100:.2f}%
-            
-            ### 🏷️ Kelas Prediksi
-            
-            1. **🔴 Belum Matang**
-               - Cabai masih hijau
-               - Tekstur keras
-               - Belum siap panen
-            
-            2. **🟠 Matang**
-               - Warna mulai berubah
-               - Tekstur sedang
-               - Siap untuk dipanen
-            
-            3. **🟢 Kematangan**
-               - Warna merah cerah penuh
-               - Tekstur optimal
-               - Siap konsumsi/jual
-            
-            ### 👨‍💻 Developer
-            Sistem dikembangkan menggunakan:
-            - Python
-            - OpenCV
-            - Scikit-learn
-            - Streamlit
-            """)
-        
-        st.markdown("---")
-        
-        st.markdown("""
-        ### 💡 Tips Penggunaan
-        
-        - ✅ Gunakan gambar dengan pencahayaan yang baik
-        - ✅ Pastikan cabai terlihat jelas
-        - ✅ Background kontras lebih baik untuk segmentasi
-        - ✅ Ukuran gambar tidak terlalu kecil (minimal 300x300px)
-        - ⚠️ Hindari gambar blur atau terlalu gelap
-        """)
-
-if __name__ == "__main__":
-    main()
+        # Cleanup
+        if os.path.exists(batch_dir):
+            shutil.rmtree(batch_dir)
