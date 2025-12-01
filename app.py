@@ -372,7 +372,7 @@ st.markdown("""
     <div class="main-header">
         <h1>🌶️ Klasifikasi Kematangan Cabai</h1>
         <p style="font-size: 1.2rem; margin-top: 1rem;">
-            Model SVM 
+             Model SVM dengan Preprocessing Advanced: Resizing → Segmentasi HSV → Morfologi → Masking → Cropping Objek → Augmentasi Data → Konversi RGB ke HSV 
         </p>
     </div>
 """, unsafe_allow_html=True)
@@ -1030,4 +1030,5 @@ elif menu == "📁 Prediksi Batch":
         # Cleanup
         if os.path.exists(batch_dir):
             shutil.rmtree(batch_dir)
+
 
