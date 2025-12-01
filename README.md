@@ -684,35 +684,6 @@ pip install opencv-python==4.8.1.78 numpy==1.24.3 pandas==2.0.3 scikit-image==0.
 
 ---
 
-## 👨‍💻 Author
-
-Proyek ini dikembangkan sebagai bagian dari sistem klasifikasi cabai menggunakan:
-- **Image Processing:** OpenCV, scikit-image
-- **Machine Learning:** SVM dengan fitur HSV + GLCM
-- **Data Augmentation:** Albumentations
-
----
-
-## 📄 Lisensi
-
-Proyek ini bersifat **open-source** untuk keperluan:
-- ✅ Edukasi dan pembelajaran
-- ✅ Penelitian akademik
-- ✅ Proyek non-komersial
-
-Untuk penggunaan komersial, silakan hubungi author.
-
----
-
-## 📞 Kontak & Kontribusi
-
-Jika Anda menemukan bug atau ingin berkontribusi:
-- 🐛 Laporkan bug di Issues
-- 💡 Kirim pull request untuk improvement
-- 📧 Hubungi author untuk kolaborasi
-
----
-
 ## 🙏 Acknowledgments
 
 Terima kasih kepada:
@@ -723,14 +694,7 @@ Terima kasih kepada:
 
 ---
 
-## 📖 Referensi
 
-1. Gonzalez, R. C., & Woods, R. E. (2018). *Digital Image Processing*. Pearson.
-2. Haralick, R. M., et al. (1973). *Textural Features for Image Classification*. IEEE Transactions.
-3. Buslaev, A., et al. (2020). *Albumentations: Fast and Flexible Image Augmentations*. Information.
-4. Bradski, G. (2000). *The OpenCV Library*. Dr. Dobb's Journal.
-
----
 
 **🌶️ Happy Preprocessing! Semoga berhasil dalam penelitian Anda!**
 
@@ -759,16 +723,9 @@ Terima kasih kepada:
 
 ---
 
-## 🎓 Tips untuk Pemula
 
-1. **Mulai dengan dataset kecil** (30-50 gambar) untuk testing
-2. **Periksa hasil setiap tahap** di folder output
-3. **Adjust parameter HSV** jika segmentasi kurang bagus
-4. **Gunakan background kontras** saat capture gambar
-5. **Backup dataset asli** sebelum preprocessing
-
----
 
 **Last Updated:** December 2024  
-**Version:** 1.0.0
+**Author  :** Maulina Ayu S
+
 
