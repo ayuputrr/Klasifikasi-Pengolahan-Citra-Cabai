@@ -167,6 +167,21 @@ def crop_object_with_padding(image, mask):
     return cropped
 
 # ======================================================
+# FUNGSI UNTUK KONVERSI NAMA FILE KE PNG
+# ======================================================
+def convert_to_png_filename(filename):
+    """Konversi nama file ke format .png"""
+    base_name = os.path.splitext(filename)[0]
+    return base_name + ".png"
+
+# ======================================================
+# FUNGSI SIMPAN GAMBAR SEBAGAI PNG
+# ======================================================
+def save_as_png(image, path):
+    """Simpan gambar dalam format PNG"""
+    cv2.imwrite(path, image, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+
+# ======================================================
 # AUGMENTASI DATA - TANPA ZOOM
 # ======================================================
 def get_augmentation_pipeline():
@@ -244,18 +259,19 @@ data = []
 NUM_AUGMENTATIONS = 3  # Jumlah augmentasi per gambar
 
 print("\n" + "="*70)
-print("MULAI PREPROCESSING & EKSTRAKSI FITUR (TANPA DISTORSI)")
+print("MULAI PREPROCESSING & EKSTRAKSI FITUR (OUTPUT: PNG)")
 print("="*70)
 
 for lbl_name, lbl_value in labels_map.items():
     label_dir = os.path.join(input_dir, lbl_name)
     
     if not os.path.exists(label_dir):
-        print(f" Folder tidak ditemukan: {label_dir}")
+        print(f"❌ Folder tidak ditemukan: {label_dir}")
         continue
     
+    # Filter hanya file gambar
     files = [f for f in os.listdir(label_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
-    print(f"\n Memproses kelas '{lbl_name}' (label {lbl_value}): {len(files)} gambar")
+    print(f"\n📁 Memproses kelas '{lbl_name}' (label {lbl_value}): {len(files)} gambar")
     print("-" * 70)
 
     for idx, file in enumerate(files):
@@ -263,50 +279,54 @@ for lbl_name, lbl_value in labels_map.items():
         img = cv2.imread(img_path)
         
         if img is None:
-            print(f"   Gagal membaca: {file}")
+            print(f"  ❌ Gagal membaca: {file}")
             continue
+
+        # Konversi nama file ke PNG
+        png_filename = convert_to_png_filename(file)
 
         # ========== PREPROCESSING PIPELINE ==========
         
         # 1. Resize awal DENGAN ASPECT RATIO (NO DISTORTION!)
         resize1 = resize_with_padding(img, target_size=664)
-        cv2.imwrite(os.path.join(output_dir, "resize_awal", lbl_name, file), resize1)
+        save_as_png(resize1, os.path.join(output_dir, "resize_awal", lbl_name, png_filename))
 
         # 2. Segmentasi HSV (setelah resize tanpa distorsi)
         hsv_img, mask = segment_hsv(resize1)
-        cv2.imwrite(os.path.join(output_dir, "hsv", lbl_name, file), hsv_img)
-        cv2.imwrite(os.path.join(output_dir, "masking", lbl_name, file), mask)
+        save_as_png(hsv_img, os.path.join(output_dir, "hsv", lbl_name, png_filename))
+        save_as_png(mask, os.path.join(output_dir, "masking", lbl_name, png_filename))
 
         # 3. Morfologi: Opening + Closing (hilangkan noise kain)
         morph = apply_morphology(mask)
-        cv2.imwrite(os.path.join(output_dir, "morfologi", lbl_name, file), morph)
+        save_as_png(morph, os.path.join(output_dir, "morfologi", lbl_name, png_filename))
 
         # 4. Implement mask ke gambar (isolasi objek, background hitam)
         masked_img = apply_mask_to_image(resize1, morph)
-        cv2.imwrite(os.path.join(output_dir, "masked_image", lbl_name, file), masked_img)
+        save_as_png(masked_img, os.path.join(output_dir, "masked_image", lbl_name, png_filename))
 
         # 5. Crop kontur terbesar dengan PADDING BESAR
         crop = crop_object_with_padding(masked_img, morph)
-        cv2.imwrite(os.path.join(output_dir, "crop", lbl_name, file), crop)
+        save_as_png(crop, os.path.join(output_dir, "crop", lbl_name, png_filename))
 
         # 6. Resize final DENGAN ASPECT RATIO (NO ZOOM!)
         final_img = resize_with_padding(crop, target_size=664)
-        cv2.imwrite(os.path.join(output_dir, "resize_final", lbl_name, file), final_img)
+        save_as_png(final_img, os.path.join(output_dir, "resize_final", lbl_name, png_filename))
 
         # ========== EKSTRAKSI FITUR GAMBAR ASLI ==========
         hsv_feat = extract_hsv_features(final_img)
         glcm_feat = extract_glcm_features(final_img)
-        fitur_all = [file, lbl_value] + hsv_feat + glcm_feat
+        fitur_all = [png_filename, lbl_value] + hsv_feat + glcm_feat
         data.append(fitur_all)
 
         # ========== AUGMENTASI ==========
         augmented_images = augment_image(final_img, NUM_AUGMENTATIONS)
         
         for aug_idx, aug_img in enumerate(augmented_images):
-            aug_filename = f"{os.path.splitext(file)[0]}_aug{aug_idx}{os.path.splitext(file)[1]}"
+            # Nama file augmentasi dalam format PNG
+            aug_filename = f"{os.path.splitext(png_filename)[0]}_aug{aug_idx}.png"
             
-            # Simpan gambar augmentasi
-            cv2.imwrite(os.path.join(output_dir, "augmented", lbl_name, aug_filename), aug_img)
+            # Simpan gambar augmentasi sebagai PNG
+            save_as_png(aug_img, os.path.join(output_dir, "augmented", lbl_name, aug_filename))
             
             # Ekstraksi fitur dari gambar augmentasi
             hsv_feat_aug = extract_hsv_features(aug_img)
@@ -315,7 +335,7 @@ for lbl_name, lbl_value in labels_map.items():
             data.append(fitur_aug)
         
         if (idx + 1) % 5 == 0 or (idx + 1) == len(files):
-            print(f"   Progress: {idx + 1}/{len(files)} gambar")
+            print(f"  ✅ Progress: {idx + 1}/{len(files)} gambar (output: PNG)")
 
 # ======================================================
 # SIMPAN CSV
@@ -331,13 +351,14 @@ df = pd.DataFrame(data, columns=columns)
 df.to_csv(csv_output, index=False)
 
 print("\n" + "="*70)
-print(" PREPROCESSING & EKSTRAKSI FITUR SELESAI!")
+print("✅ PREPROCESSING & EKSTRAKSI FITUR SELESAI!")
 print("="*70)
-print(f" Total data (asli + augmentasi): {len(df)} sampel")
-print(f"CSV tersimpan: {csv_output}")
+print(f"📊 Total data (asli + augmentasi): {len(df)} sampel")
+print(f"💾 CSV tersimpan: {csv_output}")
+print(f"🖼️  Format output: PNG (dengan kompresi optimal)")
 
 # Tampilkan distribusi kelas
-print("\n Distribusi data per kelas:")
+print("\n📈 Distribusi data per kelas:")
 for lbl_name, lbl_value in labels_map.items():
     count = len(df[df['label'] == lbl_value])
     original = count // (NUM_AUGMENTATIONS + 1)
@@ -347,9 +368,10 @@ for lbl_name, lbl_value in labels_map.items():
 
 print("\n" + "="*70)
 print("PERBAIKAN YANG DITERAPKAN:")
-print("   Resize awal DENGAN aspect ratio (tidak ada distorsi)")
-print("   Crop dengan padding 30% (objek tidak terlalu besar)")
-print("   Resize final dengan aspect ratio (tidak ada distorsi)")
-print("   Padding hitam pada canvas (ukuran objek konsisten)")
-print("   Augmentasi tanpa rotasi (tidak ada zoom sama sekali)")
+print("  ✅ Resize awal DENGAN aspect ratio (tidak ada distorsi)")
+print("  ✅ Crop dengan padding 30% (objek tidak terlalu besar)")
+print("  ✅ Resize final dengan aspect ratio (tidak ada distorsi)")
+print("  ✅ Padding hitam pada canvas (ukuran objek konsisten)")
+print("  ✅ Augmentasi tanpa rotasi (tidak ada zoom sama sekali)")
+print("  ✅ Semua output disimpan dalam format PNG")
 print("="*70)
