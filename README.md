@@ -1,4 +1,4 @@
-# 🌶️ Chili Maturity Classification - Image Processing Pipeline
+# 🌶️ Chili - Image Processing Pipeline
 
 Sistem klasifikasi tingkat kematangan cabai menggunakan **Image Processing** dan **Machine Learning**. Proyek ini fokus pada **preprocessing citra** yang robust untuk menghasilkan dataset berkualitas tinggi tanpa distorsi.
 
@@ -719,6 +719,7 @@ pip install opencv-python==4.8.1.78 numpy==1.24.3 pandas==2.0.3 scikit-image==0.
 
 **Last Updated:** December 2025  
 **Author  :** Maulina Ayu S
+
 
 
 
