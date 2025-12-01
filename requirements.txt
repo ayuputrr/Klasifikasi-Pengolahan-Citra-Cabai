@@ -1,7 +1,7 @@
 streamlit
 numpy
 pandas
-opencv-python
+opencv-python-headless
 scikit-image
 scikit-learn
 Pillow
