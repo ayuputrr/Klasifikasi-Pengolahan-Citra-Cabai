@@ -1,5 +1,4 @@
-
-   import streamlit as st
+import streamlit as st
 import zipfile
 import shutil
 import os
@@ -726,5 +725,6 @@ elif menu == "🔮 Prediksi":
         with col2:
             st.image(mask, caption="2️             
                 
+
 
 
