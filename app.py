@@ -16,7 +16,7 @@ from PIL import Image
 # ================================================================
 # KONFIGURASI PATH MODEL
 # ================================================================
-MODEL_DIR = r"C:\Users\ASUS\Downloads\fix"
+MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
 MODEL_PATH = os.path.join(MODEL_DIR, "model_svm.pkl")
@@ -634,3 +634,4 @@ elif menu == "Prediksi Batch (Folder)":
         # Cleanup
         if os.path.exists(batch_dir):
             shutil.rmtree(batch_dir)
+
