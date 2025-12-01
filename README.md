@@ -682,15 +682,7 @@ pip install opencv-python==4.8.1.78 numpy==1.24.3 pandas==2.0.3 scikit-image==0.
    - Mobile app (TensorFlow Lite)
    - Edge device (Raspberry Pi + camera)
 
----
 
-## 🙏 Acknowledgments
-
-Terima kasih kepada:
-- **OpenCV Community** - Library computer vision terbaik
-- **scikit-image** - Implementasi GLCM yang robust
-- **Albumentations** - Augmentasi modern dan efisien
-- **Kaggle & Papers with Code** - Inspirasi preprocessing pipeline
 
 ---
 
@@ -725,7 +717,8 @@ Terima kasih kepada:
 
 
 
-**Last Updated:** December 2024  
+**Last Updated:** December 2025  
 **Author  :** Maulina Ayu S
+
 
 
