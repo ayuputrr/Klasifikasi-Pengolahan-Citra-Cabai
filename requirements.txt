@@ -7,3 +7,4 @@ scikit-learn
 Pillow
 matplotlib
 albumentations
+seaborn
