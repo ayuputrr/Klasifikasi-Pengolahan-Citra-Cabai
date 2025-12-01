@@ -12,6 +12,8 @@ from sklearn.svm import SVC
 from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
 import pickle
 from PIL import Image
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 # ================================================================
 # KONFIGURASI PATH MODEL
@@ -22,9 +24,105 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 
 MODEL_PATH = os.path.join(MODEL_DIR, "model_svm.pkl")
 SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
+METRICS_PATH = os.path.join(MODEL_DIR, "metrics.pkl")
 
 # ================================================================
-# FUNGSI PREPROCESSING (SAMA SEPERTI TRAINING - DENGAN PERBAIKAN)
+# CUSTOM CSS UNTUK TAMPILAN MENARIK
+# ================================================================
+def load_custom_css():
+    st.markdown("""
+        <style>
+        /* Main header styling */
+        .main-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 2rem;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+            margin-bottom: 2rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Metric cards */
+        .metric-card {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            padding: 1.5rem;
+            border-radius: 10px;
+            color: white;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin: 1rem 0;
+        }
+        
+        .metric-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin: 0.5rem 0;
+        }
+        
+        .metric-label {
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+        
+        /* Success box */
+        .success-box {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            padding: 1rem;
+            border-radius: 8px;
+            color: white;
+            margin: 1rem 0;
+        }
+        
+        /* Info box */
+        .info-box {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            padding: 1rem;
+            border-radius: 8px;
+            color: white;
+            margin: 1rem 0;
+        }
+        
+        /* Warning box */
+        .warning-box {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            padding: 1rem;
+            border-radius: 8px;
+            color: white;
+            margin: 1rem 0;
+        }
+        
+        /* Stacked metrics */
+        .stacked-metrics {
+            display: flex;
+            gap: 1rem;
+            margin: 1rem 0;
+        }
+        
+        /* Hide Streamlit branding */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        
+        /* Custom button styling */
+        .stButton>button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            padding: 0.5rem 2rem;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .stButton>button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+# ================================================================
+# FUNGSI PREPROCESSING
 # ================================================================
 def segment_hsv(image):
     """Segmentasi multi-warna cabai: hijau, hijau kekuningan, merah, merah kekuningan"""
@@ -180,14 +278,132 @@ def extract_features(image):
     return hsv_feat + glcm_feat
 
 # ================================================================
+# FUNGSI VISUALISASI
+# ================================================================
+def plot_confusion_matrix(cm, classes):
+    """Visualisasi confusion matrix dengan warna menarik"""
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='RdYlGn', 
+                xticklabels=classes, yticklabels=classes,
+                cbar_kws={'label': 'Jumlah Prediksi'})
+    plt.title('Confusion Matrix', fontsize=16, fontweight='bold')
+    plt.ylabel('True Label', fontsize=12)
+    plt.xlabel('Predicted Label', fontsize=12)
+    plt.tight_layout()
+    return fig
+
+def plot_class_distribution(y):
+    """Visualisasi distribusi kelas"""
+    unique, counts = np.unique(y, return_counts=True)
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    colors = ['#43e97b', '#f5576c', '#fa709a']
+    bars = ax.bar(unique, counts, color=colors[:len(unique)])
+    
+    ax.set_xlabel('Kelas', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Jumlah Gambar', fontsize=12, fontweight='bold')
+    ax.set_title('Distribusi Data Training', fontsize=16, fontweight='bold')
+    ax.set_xticks(unique)
+    ax.set_xticklabels([f'Kelas {i}' for i in unique])
+    
+    # Tambahkan nilai di atas bar
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height,
+                f'{int(height)}',
+                ha='center', va='bottom', fontweight='bold')
+    
+    plt.tight_layout()
+    return fig
+
+def display_metrics_dashboard(metrics):
+    """Tampilkan dashboard metrik dengan desain menarik"""
+    st.markdown("### 📊 Dashboard Performa Model")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <div class="metric-label">Akurasi</div>
+                <div class="metric-value">{metrics['accuracy']:.1%}</div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
+                <div class="metric-label">Precision</div>
+                <div class="metric-value">{metrics['precision']:.1%}</div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                <div class="metric-label">Recall</div>
+                <div class="metric-value">{metrics['recall']:.1%}</div>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col4:
+        st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                <div class="metric-label">F1-Score</div>
+                <div class="metric-value">{metrics['f1_score']:.1%}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+# ================================================================
 # STREAMLIT UI
 # ================================================================
-st.set_page_config(page_title="Klasifikasi Kematangan Cabai", page_icon="🌶️", layout="wide")
+st.set_page_config(
+    page_title="Klasifikasi Kematangan Cabai", 
+    page_icon="🌶️", 
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.title("🌶️ Aplikasi Klasifikasi Kematangan Cabai")
-st.markdown("**Model SVM dengan Preprocessing Tanpa Zoom: Segmentasi HSV → Morfologi → Isolasi Objek → Resize dengan Aspect Ratio**")
+# Load custom CSS
+load_custom_css()
 
-menu = st.sidebar.selectbox("📋 Menu", ["Ekstraksi + Training", "Prediksi Citra", "Prediksi Batch (Folder)"])
+# Header dengan gradient
+st.markdown("""
+    <div class="main-header">
+        <h1>🌶️ Klasifikasi Kematangan Cabai</h1>
+        <p style="font-size: 1.2rem; margin-top: 1rem;">
+            Model SVM dengan Preprocessing Advanced: Segmentasi HSV → Morfologi → Isolasi Objek
+        </p>
+    </div>
+""", unsafe_allow_html=True)
+
+# Sidebar dengan styling
+with st.sidebar:
+    st.image("https://raw.githubusercontent.com/github/explore/80688e429a7d4ef2fca1e82350fe8e3517d3494d/topics/python/python.png", width=100)
+    st.markdown("### 📋 Menu Navigasi")
+    menu = st.selectbox("Pilih Menu", ["🏠 Home", "🎓 Ekstraksi + Training", "🔮 Prediksi Citra", "📁 Prediksi Batch"])
+    
+    st.markdown("---")
+    st.markdown("### 📌 Info Aplikasi")
+    st.info("""
+    **Versi:** 2.0
+    
+    **Fitur:**
+    - Training model custom
+    - Prediksi real-time
+    - Batch processing
+    - Visualisasi lengkap
+    """)
+    
+    # Tampilkan akurasi model jika ada
+    if os.path.exists(METRICS_PATH):
+        metrics = pickle.load(open(METRICS_PATH, "rb"))
+        st.markdown("---")
+        st.markdown("### 🎯 Model Performance")
+        st.success(f"**Akurasi: {metrics['accuracy']:.1%}**")
+        st.metric("Precision", f"{metrics['precision']:.1%}")
+        st.metric("Recall", f"{metrics['recall']:.1%}")
+        st.metric("F1-Score", f"{metrics['f1_score']:.1%}")
 
 # Mapping label
 label_map_str_to_int = {
@@ -215,16 +431,94 @@ label_colors = {
 }
 
 # ================================================================
+# MENU HOME
+# ================================================================
+if menu == "🏠 Home":
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.markdown("## 👋 Selamat Datang!")
+        st.markdown("""
+        Aplikasi ini menggunakan **Machine Learning (SVM)** untuk mengklasifikasikan tingkat kematangan cabai 
+        berdasarkan citra digital dengan akurasi tinggi.
+        
+        ### 🎯 Fitur Utama:
+        """)
+        
+        col_a, col_b, col_c = st.columns(3)
+        
+        with col_a:
+            st.markdown("""
+            <div class="info-box">
+                <h3>🎓 Training</h3>
+                <p>Train model dengan dataset sendiri</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_b:
+            st.markdown("""
+            <div class="success-box">
+                <h3>🔮 Prediksi</h3>
+                <p>Klasifikasi gambar cabai real-time</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col_c:
+            st.markdown("""
+            <div class="warning-box">
+                <h3>📁 Batch</h3>
+                <p>Proses banyak gambar sekaligus</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("### 📊 Kelas Prediksi:")
+        
+        col1a, col2a, col3a = st.columns(3)
+        with col1a:
+            st.success("🟢 **Belum Matang** - Cabai hijau")
+        with col2a:
+            st.error("🔴 **Matang** - Cabai merah sempurna")
+        with col3a:
+            st.warning("🟠 **Kematangan** - Cabai merah kekuningan")
+    
+    with col2:
+        st.markdown("### 🔬 Teknologi")
+        st.code("""
+        • Python 3.x
+        • Streamlit
+        • OpenCV
+        • Scikit-learn
+        • SVM Algorithm
+        • HSV Color Space
+        • GLCM Features
+        """, language="text")
+        
+        st.markdown("### 📈 Pipeline")
+        st.info("""
+        1. **Upload** gambar/dataset
+        2. **Preprocessing** (segmentasi HSV)
+        3. **Feature extraction** (HSV + GLCM)
+        4. **Training/Prediksi** (SVM)
+        5. **Visualisasi** hasil
+        """)
+
+# ================================================================
 # MENU TRAINING MODEL
 # ================================================================
-if menu == "Ekstraksi + Training":
-    st.header("📦 Upload ZIP Dataset")
-    st.info("📁 Struktur ZIP: folder per kelas (belum matang, matang, kematangan)")
+elif menu == "🎓 Ekstraksi + Training":
+    st.markdown("## 📦 Upload Dataset Training")
+    
+    st.markdown("""
+    <div class="info-box">
+        <strong>📁 Format Dataset:</strong><br>
+        Upload file ZIP dengan struktur folder per kelas (belum matang, matang, kematangan)
+    </div>
+    """, unsafe_allow_html=True)
 
-    zip_file = st.file_uploader("Upload file ZIP", type=["zip"])
+    zip_file = st.file_uploader("Upload file ZIP", type=["zip"], help="Upload ZIP berisi folder per kelas")
 
     if zip_file is not None:
-        with st.spinner("Mengekstrak ZIP..."):
+        with st.spinner("📦 Mengekstrak ZIP..."):
             # Hapus dataset lama
             if os.path.exists("dataset"):
                 shutil.rmtree("dataset")
@@ -236,10 +530,22 @@ if menu == "Ekstraksi + Training":
         st.success("✅ ZIP berhasil diekstrak!")
 
         # Mulai ekstraksi fitur
-        with st.spinner("🔄 Melakukan preprocessing & ekstraksi fitur (tanpa zoom)..."):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        with st.spinner("🔄 Melakukan preprocessing & ekstraksi fitur..."):
             data = []
             labels = []
-
+            total_images = 0
+            
+            # Hitung total gambar
+            for folder in os.listdir("dataset"):
+                folder_path = os.path.join("dataset", folder)
+                if os.path.isdir(folder_path):
+                    total_images += len([f for f in os.listdir(folder_path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
+            
+            processed = 0
+            
             for folder in os.listdir("dataset"):
                 folder_path = os.path.join("dataset", folder)
 
@@ -247,23 +553,34 @@ if menu == "Ekstraksi + Training":
                     st.write(f"📂 Memproses folder: **{folder}**")
                     
                     for img_name in os.listdir(folder_path):
+                        if not img_name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                            continue
+                            
                         img_path = os.path.join(folder_path, img_name)
-
+                        
                         try:
                             img = cv2.imread(img_path)
                             if img is None:
                                 continue
                             
-                            # Preprocessing lengkap (TANPA ZOOM!)
+                            # Preprocessing lengkap
                             processed_img, _, _, _ = preprocess_image(img)
                             
                             # Ekstraksi fitur
                             feat = extract_features(processed_img)
                             data.append(feat)
                             labels.append(folder)
+                            
+                            processed += 1
+                            progress_bar.progress(processed / total_images)
+                            status_text.text(f"✨ Diproses: {processed}/{total_images} gambar")
+                            
                         except Exception as e:
                             st.warning(f"⚠️ Gagal memproses {img_name}: {str(e)}")
 
+        status_text.empty()
+        progress_bar.empty()
+        
         df = pd.DataFrame(data)
         df["label"] = labels
 
@@ -272,22 +589,6 @@ if menu == "Ekstraksi + Training":
         
         if len(unique_classes) < 2:
             st.error(f"❌ **Error: Dataset hanya memiliki {len(unique_classes)} kelas!**")
-            st.warning("⚠️ **Solusi:**")
-            st.write("1. Pastikan ZIP berisi minimal 2 folder kelas berbeda")
-            st.write("2. Contoh struktur ZIP yang benar:")
-            st.code("""
-dataset.zip/
-├── belum matang/
-│   ├── img1.jpg
-│   └── img2.jpg
-├── matang/
-│   ├── img3.jpg
-│   └── img4.jpg
-└── kematangan/
-    ├── img5.jpg
-    └── img6.jpg
-            """)
-            st.info(f"📊 Kelas yang terdeteksi: {list(unique_classes)}")
             st.stop()
 
         # Konversi label string ke integer
@@ -301,15 +602,30 @@ dataset.zip/
             auto_map = {label: idx for idx, label in enumerate(unique_labels)}
             df["label"] = df["label_original"].map(auto_map)
 
-        st.success(f"✅ Berhasil mengekstrak fitur dari **{len(df)}** gambar")
-        st.info(f"📊 Jumlah kelas terdeteksi: **{len(unique_classes)}** → {list(unique_classes)}")
-        st.write("**Preview Dataset Fitur:**")
-        st.dataframe(df.head(10))
+        st.markdown(f"""
+        <div class="success-box">
+            <h3>✅ Ekstraksi Fitur Selesai!</h3>
+            <p>Berhasil memproses <strong>{len(df)}</strong> gambar dari <strong>{len(unique_classes)}</strong> kelas</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Visualisasi distribusi data
+        st.markdown("### 📊 Distribusi Dataset")
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            fig_dist = plot_class_distribution(df["label"].values)
+            st.pyplot(fig_dist)
+        
+        with col2:
+            st.write("**Preview Dataset Fitur:**")
+            st.dataframe(df.head(10), use_container_width=True)
 
         # ============================
         # TRAINING MODEL
         # ============================
-        st.header("🤖 Training Model SVM")
+        st.markdown("---")
+        st.markdown("## 🤖 Training Model SVM")
         
         with st.spinner("⏳ Training model..."):
             # Drop kolom yang tidak perlu
@@ -330,43 +646,64 @@ dataset.zip/
 
             # Prediksi
             y_pred = model.predict(X_test)
+            
+            # Hitung metrik
+            acc = accuracy_score(y_test, y_pred)
+            cm = confusion_matrix(y_test, y_pred)
+            report = classification_report(y_test, y_pred, output_dict=True)
+            
+            # Simpan metrik
+            metrics = {
+                'accuracy': acc,
+                'precision': report['weighted avg']['precision'],
+                'recall': report['weighted avg']['recall'],
+                'f1_score': report['weighted avg']['f1-score'],
+                'confusion_matrix': cm
+            }
 
-        # Evaluasi
-        st.subheader("📊 Evaluasi Model")
+        # Tampilkan dashboard metrik
+        display_metrics_dashboard(metrics)
         
+        st.markdown("---")
+        
+        # Visualisasi hasil
         col1, col2 = st.columns(2)
         
         with col1:
-            st.text("Confusion Matrix:")
-            st.text(confusion_matrix(y_test, y_pred))
+            st.markdown("### 📊 Confusion Matrix")
+            class_names = [label_map_int_to_str[i] for i in sorted(df["label"].unique())]
+            fig_cm = plot_confusion_matrix(cm, class_names)
+            st.pyplot(fig_cm)
         
         with col2:
-            acc = accuracy_score(y_test, y_pred)
-            st.metric("Akurasi", f"{acc:.2%}")
+            st.markdown("### 📝 Classification Report")
+            report_df = pd.DataFrame(classification_report(y_test, y_pred, output_dict=True)).transpose()
+            st.dataframe(report_df.style.highlight_max(axis=0, color='lightgreen'), use_container_width=True)
 
-        st.text("Classification Report:")
-        st.text(classification_report(y_test, y_pred))
-
-        # Simpan Model & Scaler
+        # Simpan Model, Scaler, & Metrics
         pickle.dump(model, open(MODEL_PATH, "wb"))
         pickle.dump(scaler, open(SCALER_PATH, "wb"))
+        pickle.dump(metrics, open(METRICS_PATH, "wb"))
 
-        st.success("✅ Model & Scaler berhasil disimpan!")
-        st.info(f"📁 Lokasi: `{MODEL_DIR}/`")
-        
-        st.success("🎯 **Preprocessing yang diterapkan:**")
-        st.write("✅ Crop dengan padding 30% (objek tidak terlalu besar)")
-        st.write("✅ Resize dengan aspect ratio (tidak ada distorsi)")
-        st.write("✅ Padding hitam pada canvas (ukuran objek konsisten)")
-        st.write("✅ Objek TIDAK akan ter-zoom berlebihan!")
-
+        st.markdown(f"""
+        <div class="success-box">
+            <h3>✅ Training Selesai!</h3>
+            <p>Model, Scaler, dan Metrics berhasil disimpan di <code>{MODEL_DIR}/</code></p>
+            <p><strong>Akurasi Model: {acc:.2%}</strong></p>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ================================================================
 # MENU PREDIKSI CITRA
 # ================================================================
-elif menu == "Prediksi Citra":
-    st.header("📷 Upload Gambar Cabai untuk Prediksi")
-    st.info("💡 Model akan otomatis mengisolasi objek cabai dari background TANPA zoom berlebihan")
+elif menu == "🔮 Prediksi Citra":
+    st.markdown("## 📷 Upload Gambar Cabai untuk Prediksi")
+    
+    st.markdown("""
+    <div class="info-box">
+        💡 Model akan otomatis mengisolasi objek cabai dari background TANPA zoom berlebihan
+    </div>
+    """, unsafe_allow_html=True)
 
     img_file = st.file_uploader("Upload gambar", type=["jpg", "jpeg", "png"])
 
@@ -384,28 +721,28 @@ elif menu == "Prediksi Citra":
         scaler = pickle.load(open(SCALER_PATH, "rb"))
 
         # Preprocessing
-        with st.spinner("🔄 Melakukan preprocessing (tanpa zoom)..."):
+        with st.spinner("🔄 Melakukan preprocessing..."):
             processed_img, mask, masked_img, cropped_img = preprocess_image(img)
 
         # Tampilkan hasil preprocessing
-        st.subheader("📋 Tahapan Preprocessing (Tanpa Zoom)")
+        st.markdown("### 📋 Tahapan Preprocessing")
         
         col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
-            st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), caption="1. Gambar Asli", use_column_width=True)
+            st.image(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), caption="1️⃣ Original", use_column_width=True)
         
         with col2:
-            st.image(mask, caption="2. Mask (Segmentasi)", use_column_width=True)
+            st.image(mask, caption="2️⃣ Mask", use_column_width=True)
         
         with col3:
-            st.image(cv2.cvtColor(masked_img, cv2.COLOR_BGR2RGB), caption="3. Objek Terpisah", use_column_width=True)
+            st.image(cv2.cvtColor(masked_img, cv2.COLOR_BGR2RGB), caption="3️⃣ Isolated", use_column_width=True)
         
         with col4:
-            st.image(cv2.cvtColor(cropped_img, cv2.COLOR_BGR2RGB), caption="4. Crop + Padding 30%", use_column_width=True)
+            st.image(cv2.cvtColor(cropped_img, cv2.COLOR_BGR2RGB), caption="4️⃣ Cropped", use_column_width=True)
         
         with col5:
-            st.image(cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB), caption="5. Hasil Akhir (No Zoom!)", use_column_width=True)
+            st.image(cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB), caption="5️⃣ Final", use_column_width=True)
 
         # Ekstraksi fitur
         with st.spinner("🔍 Mengekstrak fitur..."):
@@ -416,7 +753,7 @@ elif menu == "Prediksi Citra":
         pred_label = model.predict(feat_scaled)[0]
         pred_proba = model.predict_proba(feat_scaled)[0]
 
-        # Konversi label ke format yang konsisten
+        # Konversi label
         if isinstance(pred_label, str):
             pred_label_normalized = pred_label.lower()
             pred_label_int = label_map_str_to_int.get(pred_label_normalized, 0)
@@ -427,12 +764,20 @@ elif menu == "Prediksi Citra":
             pred_label_display = label_map_int_to_str.get(pred_label_int, "Unknown")
             emoji = label_colors.get(pred_label_int, "⚪")
 
-        # Hasil Prediksi
-        st.subheader("🎯 Hasil Prediksi")
+        # Hasil Prediksi dengan styling menarik
+        st.markdown("---")
+        st.markdown("### 🎯 Hasil Prediksi")
         
-        st.success(f"### {emoji} Kelas: **{pred_label_display}**")
+        max_prob = np.max(pred_proba) * 100
         
-        st.write("**Probabilitas per Kelas:**")
+        st.markdown(f"""
+        <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-size: 1.5rem;">
+            <h2>{emoji} {pred_label_display}</h2>
+            <p style="font-size: 2rem; margin: 1rem 0;">Confidence: {max_prob:.1f}%</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("### 📊 Probabilitas Per Kelas")
         
         # Buat dataframe probabilitas
         prob_labels = []
@@ -447,26 +792,46 @@ elif menu == "Prediksi Citra":
                 display_label = label_map_int_to_str.get(i, f"Class {i}")
             prob_labels.append(display_label)
         
-        prob_df = pd.DataFrame({
-            'Kelas': prob_labels,
-            'Probabilitas': [f"{p*100:.2f}%" for p in pred_proba]
-        })
-        st.dataframe(prob_df)
+        # Visualisasi probabilitas
+        col1, col2 = st.columns([2, 1])
         
-        # Bar chart probabilitas
-        chart_data = pd.DataFrame({
-            prob_labels[i]: [pred_proba[i]] for i in range(len(pred_proba))
-        }).T
-        st.bar_chart(chart_data)
+        with col1:
+            # Bar chart dengan matplotlib
+            fig, ax = plt.subplots(figsize=(10, 4))
+            colors_bar = ['#43e97b', '#f5576c', '#fa709a']
+            bars = ax.barh(prob_labels, pred_proba * 100, color=colors_bar[:len(prob_labels)])
+            ax.set_xlabel('Probabilitas (%)', fontweight='bold')
+            ax.set_title('Distribusi Probabilitas Prediksi', fontweight='bold', fontsize=14)
+            ax.set_xlim(0, 100)
+            
+            # Tambahkan nilai di ujung bar
+            for i, bar in enumerate(bars):
+                width = bar.get_width()
+                ax.text(width + 2, bar.get_y() + bar.get_height()/2,
+                        f'{pred_proba[i]*100:.1f}%',
+                        ha='left', va='center', fontweight='bold')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
         
-        st.success("✅ **Objek cabai diproses dengan ukuran konsisten (NO ZOOM)!**")
+        with col2:
+            prob_df = pd.DataFrame({
+                'Kelas': prob_labels,
+                'Probabilitas': [f"{p*100:.2f}%" for p in pred_proba]
+            })
+            st.dataframe(prob_df, use_container_width=True)
 
 # ================================================================
-# MENU PREDIKSI BATCH (FOLDER)
+# MENU PREDIKSI BATCH
 # ================================================================
-elif menu == "Prediksi Batch (Folder)":
-    st.header("📁 Prediksi Banyak Gambar Sekaligus")
-    st.info("💡 Upload ZIP berisi gambar-gambar cabai (tanpa subfolder) untuk prediksi batch")
+elif menu == "📁 Prediksi Batch":
+    st.markdown("## 📁 Prediksi Banyak Gambar Sekaligus")
+    
+    st.markdown("""
+    <div class="info-box">
+        💡 Upload ZIP berisi gambar-gambar cabai untuk prediksi batch
+    </div>
+    """, unsafe_allow_html=True)
     
     # Upload ZIP
     zip_file = st.file_uploader("Upload ZIP berisi gambar", type=["zip"], key="batch_zip")
@@ -527,7 +892,7 @@ elif menu == "Prediksi Batch (Folder)":
                     })
                     continue
                 
-                # Preprocessing (TANPA ZOOM!)
+                # Preprocessing
                 processed_img, _, _, _ = preprocess_image(img)
                 
                 # Ekstraksi fitur
@@ -567,33 +932,50 @@ elif menu == "Prediksi Batch (Folder)":
             progress_bar.progress((idx + 1) / len(image_files))
         
         status_text.text("✅ Prediksi selesai!")
+        progress_bar.empty()
         
         # Tampilkan hasil dalam tabel
-        st.subheader("📊 Hasil Prediksi Batch")
+        st.markdown("### 📊 Hasil Prediksi Batch")
         
         results_df = pd.DataFrame(results)
-        st.dataframe(results_df)
+        st.dataframe(results_df, use_container_width=True)
         
         # Statistik hasil
-        st.subheader("📈 Statistik Prediksi")
+        st.markdown("### 📈 Statistik Prediksi")
         
         col1, col2, col3 = st.columns(3)
         
+        total_success = len([r for r in results if r['Status'] == '✅ Berhasil'])
+        total_failed = len(results) - total_success
+        success_rate = (total_success / len(results)) * 100 if len(results) > 0 else 0
+        
         with col1:
-            total_success = len([r for r in results if r['Status'] == '✅ Berhasil'])
-            st.metric("✅ Berhasil", f"{total_success}/{len(results)}")
+            st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
+                <div class="metric-label">Berhasil</div>
+                <div class="metric-value">{total_success}/{len(results)}</div>
+            </div>
+            """, unsafe_allow_html=True)
         
         with col2:
-            total_failed = len(results) - total_success
-            st.metric("❌ Gagal", total_failed)
+            st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);">
+                <div class="metric-label">Gagal</div>
+                <div class="metric-value">{total_failed}</div>
+            </div>
+            """, unsafe_allow_html=True)
         
         with col3:
-            success_rate = (total_success / len(results)) * 100 if len(results) > 0 else 0
-            st.metric("📊 Success Rate", f"{success_rate:.1f}%")
+            st.markdown(f"""
+            <div class="metric-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <div class="metric-label">Success Rate</div>
+                <div class="metric-value">{success_rate:.1f}%</div>
+            </div>
+            """, unsafe_allow_html=True)
         
         # Distribusi prediksi
         if total_success > 0:
-            st.subheader("📊 Distribusi Kelas Prediksi")
+            st.markdown("### 📊 Distribusi Kelas Prediksi")
             
             # Hitung distribusi
             prediction_counts = {}
@@ -602,25 +984,40 @@ elif menu == "Prediksi Batch (Folder)":
                     pred = r['Prediksi'].split(' ', 1)[1] if ' ' in r['Prediksi'] else r['Prediksi']
                     prediction_counts[pred] = prediction_counts.get(pred, 0) + 1
             
-            # Tampilkan dalam chart
-            dist_df = pd.DataFrame({
-                'Kelas': list(prediction_counts.keys()),
-                'Jumlah': list(prediction_counts.values())
-            })
-            
             col1, col2 = st.columns([2, 1])
             
             with col1:
-                st.bar_chart(dist_df.set_index('Kelas'))
+                # Chart dengan matplotlib
+                fig, ax = plt.subplots(figsize=(10, 6))
+                classes = list(prediction_counts.keys())
+                counts = list(prediction_counts.values())
+                colors = ['#43e97b', '#f5576c', '#fa709a']
+                
+                bars = ax.bar(classes, counts, color=colors[:len(classes)])
+                ax.set_xlabel('Kelas', fontsize=12, fontweight='bold')
+                ax.set_ylabel('Jumlah', fontsize=12, fontweight='bold')
+                ax.set_title('Distribusi Hasil Prediksi', fontsize=14, fontweight='bold')
+                
+                # Tambahkan nilai di atas bar
+                for bar in bars:
+                    height = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width()/2., height,
+                            f'{int(height)}',
+                            ha='center', va='bottom', fontweight='bold')
+                
+                plt.tight_layout()
+                st.pyplot(fig)
             
             with col2:
-                st.dataframe(dist_df)
-                for kelas, jumlah in prediction_counts.items():
-                    pct = (jumlah / total_success) * 100
-                    st.write(f"**{kelas}**: {jumlah} ({pct:.1f}%)")
+                dist_df = pd.DataFrame({
+                    'Kelas': classes,
+                    'Jumlah': counts,
+                    'Persentase': [f"{(c/total_success)*100:.1f}%" for c in counts]
+                })
+                st.dataframe(dist_df, use_container_width=True)
         
         # Download hasil sebagai CSV
-        st.subheader("💾 Download Hasil")
+        st.markdown("### 💾 Download Hasil")
         
         csv = results_df.to_csv(index=False).encode('utf-8')
         st.download_button(
@@ -629,8 +1026,6 @@ elif menu == "Prediksi Batch (Folder)":
             file_name="hasil_prediksi_batch.csv",
             mime="text/csv"
         )
-        
-        st.success("✅ **Semua gambar diproses dengan preprocessing TANPA ZOOM!**")
         
         # Cleanup
         if os.path.exists(batch_dir):
