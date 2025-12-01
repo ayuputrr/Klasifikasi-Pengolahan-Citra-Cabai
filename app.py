@@ -16,6 +16,7 @@ from PIL import Image
 # ================================================================
 # KONFIGURASI PATH MODEL
 # ================================================================
+# Gunakan path relatif untuk kompatibilitas deployment
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 os.makedirs(MODEL_DIR, exist_ok=True)
 
@@ -634,4 +635,3 @@ elif menu == "Prediksi Batch (Folder)":
         # Cleanup
         if os.path.exists(batch_dir):
             shutil.rmtree(batch_dir)
-
