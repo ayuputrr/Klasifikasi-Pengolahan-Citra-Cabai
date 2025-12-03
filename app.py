@@ -114,11 +114,11 @@ def resize_with_padding(image, target_size=664):
 
 def preprocess_image(image):
     """
-    Pipeline preprocessing lengkap (TANPA DISTORSI & ZOOM):
-    resize dengan aspect ratio → segment → morphology → mask → crop dengan padding → resize dengan aspect ratio
+    Pipeline preprocessing lengkap (TANPA ZOOM):
+    resize → segment → morphology → mask → crop dengan padding → resize dengan aspect ratio
     """
-    # 1. Resize awal DENGAN ASPECT RATIO (NO DISTORTION!)
-    resized = resize_with_padding(image, target_size=664)
+    # 1. Resize awal
+    resized = cv2.resize(image, (664, 664))
     
     # 2. Segmentasi HSV
     mask = segment_hsv(resized)
@@ -184,7 +184,7 @@ def extract_features(image):
 st.set_page_config(page_title="Klasifikasi Kematangan Cabai", page_icon="🌶️", layout="wide")
 
 st.title("🌶️ Aplikasi Klasifikasi Kematangan Cabai")
-st.markdown("**Model SVM dengan Preprocessing TANPA DISTORSI: Resize dengan Aspect Ratio → Segmentasi HSV → Morfologi → Isolasi Objek**")
+st.markdown("**Model SVM dengan Preprocessing Tanpa Zoom: Segmentasi HSV → Morfologi → Isolasi Objek → Resize dengan Aspect Ratio**")
 
 menu = st.sidebar.selectbox("📋 Menu", ["Ekstraksi + Training", "Prediksi Citra", "Prediksi Batch (Folder)"])
 
@@ -235,7 +235,7 @@ if menu == "Ekstraksi + Training":
         st.success("✅ ZIP berhasil diekstrak!")
 
         # Mulai ekstraksi fitur
-        with st.spinner("🔄 Melakukan preprocessing & ekstraksi fitur (tanpa distorsi & zoom)..."):
+        with st.spinner("🔄 Melakukan preprocessing & ekstraksi fitur (tanpa zoom)..."):
             data = []
             labels = []
 
@@ -253,7 +253,7 @@ if menu == "Ekstraksi + Training":
                             if img is None:
                                 continue
                             
-                            # Preprocessing lengkap (TANPA DISTORSI & ZOOM!)
+                            # Preprocessing lengkap (TANPA ZOOM!)
                             processed_img, _, _, _ = preprocess_image(img)
                             
                             # Ekstraksi fitur
@@ -354,11 +354,10 @@ dataset.zip/
         st.info(f"📁 Lokasi: `{MODEL_DIR}/`")
         
         st.success("🎯 **Preprocessing yang diterapkan:**")
-        st.write("✅ Resize awal DENGAN aspect ratio (tidak ada distorsi)")
         st.write("✅ Crop dengan padding 30% (objek tidak terlalu besar)")
-        st.write("✅ Resize final dengan aspect ratio (tidak ada distorsi)")
+        st.write("✅ Resize dengan aspect ratio (tidak ada distorsi)")
         st.write("✅ Padding hitam pada canvas (ukuran objek konsisten)")
-        st.write("✅ Objek TIDAK ada distorsi dan zoom berlebihan!")
+        st.write("✅ Objek TIDAK akan ter-zoom berlebihan!")
 
 
 # ================================================================
@@ -366,7 +365,7 @@ dataset.zip/
 # ================================================================
 elif menu == "Prediksi Citra":
     st.header("📷 Upload Gambar Cabai untuk Prediksi")
-    st.info("💡 Model akan otomatis mengisolasi objek cabai TANPA distorsi dan zoom berlebihan")
+    st.info("💡 Model akan otomatis mengisolasi objek cabai dari background TANPA zoom berlebihan")
 
     img_file = st.file_uploader("Upload gambar", type=["jpg", "jpeg", "png"])
 
@@ -384,11 +383,11 @@ elif menu == "Prediksi Citra":
         scaler = pickle.load(open(SCALER_PATH, "rb"))
 
         # Preprocessing
-        with st.spinner("🔄 Melakukan preprocessing (tanpa distorsi & zoom)..."):
+        with st.spinner("🔄 Melakukan preprocessing (tanpa zoom)..."):
             processed_img, mask, masked_img, cropped_img = preprocess_image(img)
 
         # Tampilkan hasil preprocessing
-        st.subheader("📋 Tahapan Preprocessing (Tanpa Distorsi & Zoom)")
+        st.subheader("📋 Tahapan Preprocessing (Tanpa Zoom)")
         
         col1, col2, col3, col4, col5 = st.columns(5)
         
@@ -405,7 +404,7 @@ elif menu == "Prediksi Citra":
             st.image(cv2.cvtColor(cropped_img, cv2.COLOR_BGR2RGB), caption="4. Crop + Padding 30%", use_column_width=True)
         
         with col5:
-            st.image(cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB), caption="5. Hasil Akhir", use_column_width=True)
+            st.image(cv2.cvtColor(processed_img, cv2.COLOR_BGR2RGB), caption="5. Hasil Akhir (No Zoom!)", use_column_width=True)
 
         # Ekstraksi fitur
         with st.spinner("🔍 Mengekstrak fitur..."):
@@ -459,7 +458,7 @@ elif menu == "Prediksi Citra":
         }).T
         st.bar_chart(chart_data)
         
-        st.success("✅ **Objek cabai diproses TANPA distorsi dan zoom berlebihan!**")
+        st.success("✅ **Objek cabai diproses dengan ukuran konsisten (NO ZOOM)!**")
 
 # ================================================================
 # MENU PREDIKSI BATCH (FOLDER)
@@ -527,7 +526,7 @@ elif menu == "Prediksi Batch (Folder)":
                     })
                     continue
                 
-                # Preprocessing (TANPA DISTORSI & ZOOM!)
+                # Preprocessing (TANPA ZOOM!)
                 processed_img, _, _, _ = preprocess_image(img)
                 
                 # Ekstraksi fitur
@@ -630,7 +629,7 @@ elif menu == "Prediksi Batch (Folder)":
             mime="text/csv"
         )
         
-        st.success("✅ **Semua gambar diproses TANPA distorsi dan zoom berlebihan!**")
+        st.success("✅ **Semua gambar diproses dengan preprocessing TANPA ZOOM!**")
         
         # Cleanup
         if os.path.exists(batch_dir):
