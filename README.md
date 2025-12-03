@@ -653,8 +653,7 @@ pip install opencv-python==4.8.1.78 numpy==1.24.3 pandas==2.0.3 scikit-image==0.
 | Model | Akurasi yang Diharapkan |
 |-------|-------------------------|
 | SVM (RBF Kernel) | 85-92% |
-| Random Forest | 80-88% |
-| CNN (ResNet/EfficientNet) | 90-96% |
+
 
 ---
 
@@ -719,6 +718,7 @@ pip install opencv-python==4.8.1.78 numpy==1.24.3 pandas==2.0.3 scikit-image==0.
 
 **Last Updated:** December 2025  
 **Author  :** Maulina Ayu S
+
 
 
 
