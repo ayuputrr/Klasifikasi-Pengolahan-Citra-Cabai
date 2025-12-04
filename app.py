@@ -15,13 +15,11 @@ from PIL import Image
 import tempfile
 
 # ================================================================
-# KONFIGURASI PATH MODEL (MENGGUNAKAN TEMPDIR)
+# KONFIGURASI PATH MODEL (UNTUK DEPLOYMENT STREAMLIT)
 # ================================================================
-MODEL_DIR = os.path.join(tempfile.gettempdir(), "chili_classifier_models")
-os.makedirs(MODEL_DIR, exist_ok=True)
-
-MODEL_PATH = os.path.join(MODEL_DIR, "model_svm.pkl")
-SCALER_PATH = os.path.join(MODEL_DIR, "scaler.pkl")
+# Model ada di root directory (sama level dengan app.py)
+MODEL_PATH = "model_svm.pkl"
+SCALER_PATH = "scaler.pkl"
 
 # ================================================================
 # CUSTOM CSS UNTUK TAMPILAN LEBIH MENARIK
@@ -269,8 +267,9 @@ menu = st.sidebar.radio(
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ℹ️ Informasi")
 st.sidebar.info(f"""
-**Model Location:**  
-`{MODEL_DIR}`
+**Model Files:**  
+- model_svm.pkl
+- scaler.pkl
 
 **Status Model:**  
 {'✅ Tersedia' if os.path.exists(MODEL_PATH) else '❌ Belum Ditraining'}
@@ -446,7 +445,8 @@ if menu == "🎓 Ekstraksi + Training":
         pickle.dump(model, open(MODEL_PATH, "wb"))
         pickle.dump(scaler, open(SCALER_PATH, "wb"))
 
-        st.success(f"✅ Model & Scaler berhasil disimpan di: `{MODEL_DIR}`")
+        st.success(f"✅ Model & Scaler berhasil disimpan!")
+        st.info("📁 File tersimpan: `model_svm.pkl` dan `scaler.pkl`")
 
 # ================================================================
 # MENU PREDIKSI CITRA
